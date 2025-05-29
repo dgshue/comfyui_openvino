@@ -17,7 +17,7 @@ RUN if [ -f /etc/apt/apt.conf.d/proxy.conf ]; then rm /etc/apt/apt.conf.d/proxy.
     if [ ! -z ${HTTPS_PROXY} ]; then echo "Acquire::https::Proxy \"${HTTPS_PROXY}\";" >> /etc/apt/apt.conf.d/proxy.conf; fi
 RUN apt-get update -y && \
     apt-get full-upgrade -y && \
-    DEBIAN_FRONTEND=noninteractive apt install -y \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 \
     python3-pip \
     python3-dev \
@@ -67,6 +67,7 @@ git \
 ninja-build \
 make \
 cmake \
+build-essential \
 python3-pybind11 \
 libgl1 \
 #libgl-mesa0 \
