@@ -7,16 +7,16 @@
 
 FROM openvino/ubuntu24_runtime
 
+USER root
 RUN set -eu
 
 # See http://bugs.python.org/issue19846
-ENV LANG C.UTF-8
 
 RUN if [ -f /etc/apt/apt.conf.d/proxy.conf ]; then rm /etc/apt/apt.conf.d/proxy.conf; fi && \
     if [ ! -z ${HTTP_PROXY} ]; then echo "Acquire::http::Proxy \"${HTTP_PROXY}\";" >> /etc/apt/apt.conf.d/proxy.conf; fi && \
     if [ ! -z ${HTTPS_PROXY} ]; then echo "Acquire::https::Proxy \"${HTTPS_PROXY}\";" >> /etc/apt/apt.conf.d/proxy.conf; fi
-RUN apt update -y && \
-    apt full-upgrade -y && \
+RUN apt-get update -y && \
+    apt-get full-upgrade -y && \
     DEBIAN_FRONTEND=noninteractive apt install -y \
     python3 \
     python3-pip \
@@ -25,7 +25,7 @@ RUN apt update -y && \
     google-perftools \
     openssh-server \
     net-tools
-RUN apt clean && \
+RUN apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
     if [ -f /etc/apt/apt.conf.d/proxy.conf ]; then rm /etc/apt/apt.conf.d/proxy.conf; fi
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 100
@@ -68,7 +68,8 @@ ninja-build \
 make \
 cmake \
 python3-pybind11 \
-libgl1-mesa-glx \
+libgl1 \
+#libgl-mesa0 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
