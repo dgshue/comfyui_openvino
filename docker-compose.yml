@@ -1,0 +1,23 @@
+# Compose file for Intel GPU
+
+services:
+
+  comfyui:
+    init: true
+    container_name: comfyui-openvino
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "comfyui-openvino"
+    ports:
+      - "8188:8188"
+    volumes:
+      - "./storage:/root"
+    environment:
+      - CLI_ARGS=
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/accel/accel0:/dev/accel/accel0
+    ipc: host
+    security_opt:
+      - label:disable
