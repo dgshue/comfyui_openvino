@@ -4,9 +4,212 @@
 # Running on XPU (Intel GPU) and OpenVINO.
 # Using PyTorch built by Intel.
 ################################################################################
+FROM ubuntu:24.04 AS base
+
+# hadolint ignore=DL3002
+USER root
+WORKDIR /
+
+SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# hadolint ignore=DL3008
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl tzdata ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# get product from URL
+ARG package_url=https://storage.openvinotoolkit.org/repositories/openvino_genai/packages/2025.1/linux/openvino_genai_ubuntu24_2025.1.0.0_x86_64.tar.gz
+ARG TEMP_DIR=/tmp/openvino_installer
+
+WORKDIR ${TEMP_DIR}
+# hadolint ignore=DL3020
+ADD ${package_url} ${TEMP_DIR}
+
+# install product by copying archive content
+ARG TEMP_DIR=/tmp/openvino_installer
+ENV INTEL_OPENVINO_DIR=/opt/intel/openvino
+
+# Creating user openvino and adding it to groups"users"
+RUN useradd -ms /bin/bash -G users openvino
+
+RUN find "${TEMP_DIR}" \( -name "*.tgz" -o -name "*.tar.gz" \) -exec tar -xzf {} \; && \
+    OV_BUILD="$(find . -maxdepth 1 -type d -name "*openvino*" | grep -oP '(?<=_)\d+.\d+.\d.\d+')" && \
+    OV_YEAR="$(echo "$OV_BUILD" | grep -oP '^[^\d]*(\d+)')" && \
+    OV_FOLDER="$(find . -maxdepth 1 -type d -name "*openvino*")" && \
+    mkdir -p /opt/intel/openvino_"$OV_BUILD"/ && \
+    cp -rf "$OV_FOLDER"/*  /opt/intel/openvino_"$OV_BUILD"/ && \
+    rm -rf "${TEMP_DIR:?}"/"$OV_FOLDER" && \
+    ln --symbolic /opt/intel/openvino_"$OV_BUILD"/ /opt/intel/openvino && \
+    ln --symbolic /opt/intel/openvino_"$OV_BUILD"/ /opt/intel/openvino_"$OV_YEAR" && \
+    rm -rf "${TEMP_DIR}" && \
+    chown -R openvino /opt/intel/openvino_"$OV_BUILD"
+
+
+ENV InferenceEngine_DIR=/opt/intel/openvino/runtime/cmake
+ENV LD_LIBRARY_PATH=/opt/intel/openvino/runtime/3rdparty/hddl/lib:/opt/intel/openvino/runtime/3rdparty/tbb/lib:/opt/intel/openvino/runtime/lib/intel64:/opt/intel/openvino/tools/compile_tool:/opt/intel/openvino/extras/opencv/lib
+ENV OpenCV_DIR=/opt/intel/openvino/extras/opencv/cmake
+ENV PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV PYTHONPATH=/opt/intel/openvino/python:/opt/intel/openvino/python/python3:/opt/intel/openvino/extras/opencv/python
+ENV TBB_DIR=/opt/intel/openvino/runtime/3rdparty/tbb/cmake
+ENV ngraph_DIR=/opt/intel/openvino/runtime/cmake
+ENV OpenVINO_DIR=/opt/intel/openvino/runtime/cmake
+ENV INTEL_OPENVINO_DIR=/opt/intel/openvino
+ENV OV_TOKENIZER_PREBUILD_EXTENSION_PATH=/opt/intel/openvino/runtime/lib/intel64/libopenvino_tokenizers.so
+ENV PKG_CONFIG_PATH=/opt/intel/openvino/runtime/lib/intel64/pkgconfig
+
+RUN rm -rf ${INTEL_OPENVINO_DIR}/.distribution && mkdir ${INTEL_OPENVINO_DIR}/.distribution && \
+    touch ${INTEL_OPENVINO_DIR}/.distribution/docker
+# -----------------
+
+
+
+FROM base AS opencv
+
+LABEL description="This is the dev image for OpenCV building with OpenVINO Runtime backend"
+LABEL vendor="Intel Corporation"
+
+SHELL ["/bin/bash", "-xo", "pipefail", "-c"]
+
+# hadolint ignore=DL3008
+RUN apt-get update; \
+    apt-get install -y --no-install-recommends \
+        git \
+        python3-dev \
+        python3-pip \
+        python3-venv \
+        build-essential \
+        cmake \
+        ninja-build \
+        libgtk-3-dev \
+        libpng-dev \
+        libjpeg-dev \
+        libwebp-dev \
+        libtiff5-dev \
+        libopenexr-dev \
+        libopenblas-dev \
+        libx11-dev \
+        libavutil-dev \
+        libavcodec-dev \
+        libavformat-dev \
+        libswscale-dev \
+        libswresample-dev \
+        # libtbb2 \
+        libssl-dev \
+        libva-dev \
+        libmfx-dev \
+        libgstreamer1.0-dev \
+        libgstreamer-plugins-base1.0-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH=$VIRTUAL_ENV/bin:$PATH
+
+# hadolint ignore=DL3013
+RUN python3 -m pip install --no-cache-dir --upgrade pip
+RUN python3 -m pip install --no-cache-dir numpy==1.26.4
+
+ARG OPENCV_BRANCH=4.10.0
+WORKDIR /opt/repo
+RUN git clone https://github.com/opencv/opencv.git
+WORKDIR /opt/repo/opencv
+RUN git checkout ${OPENCV_BRANCH}
+WORKDIR /opt/repo/opencv/build
+
+# hadolint ignore=SC1091
+RUN . "${INTEL_OPENVINO_DIR}"/setupvars.sh; \
+    cmake -G Ninja \
+    -D BUILD_INFO_SKIP_EXTRA_MODULES=ON \
+    -D BUILD_EXAMPLES=OFF \
+    -D BUILD_JASPER=OFF \
+    -D BUILD_JAVA=OFF \
+    -D BUILD_JPEG=ON \
+    -D BUILD_APPS_LIST=version \
+    -D BUILD_opencv_apps=ON \
+    -D BUILD_opencv_java=OFF \
+    -D BUILD_OPENEXR=OFF \
+    -D BUILD_PNG=ON \
+    -D BUILD_TBB=OFF \
+    -D BUILD_WEBP=OFF \
+    -D BUILD_ZLIB=ON \
+    -D BUILD_TESTS=ON \
+    -D WITH_1394=OFF \
+    -D WITH_CUDA=OFF \
+    -D WITH_EIGEN=OFF \
+    -D WITH_GPHOTO2=OFF \
+    -D WITH_GSTREAMER=ON \
+    -D OPENCV_GAPI_GSTREAMER=OFF \
+    -D WITH_GTK_2_X=OFF \
+    -D WITH_IPP=ON \
+    -D WITH_JASPER=OFF \
+    -D WITH_LAPACK=OFF \
+    -D WITH_MATLAB=OFF \
+    -D WITH_MFX=ON \
+    -D WITH_OPENCLAMDBLAS=OFF \
+    -D WITH_OPENCLAMDFFT=OFF \
+    -D WITH_OPENEXR=OFF \
+    -D WITH_OPENJPEG=OFF \
+    -D WITH_QUIRC=OFF \
+    -D WITH_TBB=OFF \
+    -D WITH_TIFF=OFF \
+    -D WITH_VTK=OFF \
+    -D WITH_WEBP=OFF \
+    -D CMAKE_USE_RELATIVE_PATHS=ON \
+    -D CMAKE_SKIP_INSTALL_RPATH=ON \
+    -D ENABLE_BUILD_HARDENING=ON \
+    -D ENABLE_CONFIG_VERIFICATION=ON \
+    -D ENABLE_PRECOMPILED_HEADERS=OFF \
+    -D ENABLE_CXX11=ON \
+    -D INSTALL_PDB=ON \
+    -D INSTALL_TESTS=ON \
+    -D INSTALL_C_EXAMPLES=OFF \
+    -D INSTALL_PYTHON_EXAMPLES=OFF \
+    -D CMAKE_INSTALL_PREFIX=install \
+    -D OPENCV_SKIP_PKGCONFIG_GENERATION=ON \
+    -D OPENCV_SKIP_PYTHON_LOADER=OFF \
+    -D OPENCV_SKIP_CMAKE_ROOT_CONFIG=ON \
+    -D OPENCV_GENERATE_SETUPVARS=OFF \
+    -D OPENCV_BIN_INSTALL_PATH=bin \
+    -D OPENCV_INCLUDE_INSTALL_PATH=include \
+    -D OPENCV_LIB_INSTALL_PATH=lib \
+    -D OPENCV_CONFIG_INSTALL_PATH=cmake \
+    -D OPENCV_3P_LIB_INSTALL_PATH=3rdparty \
+    -D OPENCV_DOC_INSTALL_PATH=doc \
+    -D OPENCV_OTHER_INSTALL_PATH=etc \
+    -D OPENCV_LICENSES_INSTALL_PATH=etc/licenses \
+    -D OPENCV_INSTALL_FFMPEG_DOWNLOAD_SCRIPT=ON \
+    -D BUILD_opencv_world=OFF \
+    -D BUILD_opencv_python2=OFF \
+    -D BUILD_opencv_python3=ON \
+    -D BUILD_opencv_dnn=OFF \
+    -D BUILD_opencv_gapi=OFF \
+    -D PYTHON3_PACKAGES_PATH=install/python/python3 \
+    -D PYTHON3_LIMITED_API=ON \
+    -D HIGHGUI_PLUGIN_LIST=all \
+    -D OPENCV_PYTHON_INSTALL_PATH=python \
+    -D CPU_BASELINE=SSE4_2 \
+    -D OPENCV_IPP_GAUSSIAN_BLUR=ON \
+    -D WITH_INF_ENGINE=ON \
+    -D InferenceEngine_DIR="${INTEL_OPENVINO_DIR}"/runtime/cmake/ \
+    -D ngraph_DIR="${INTEL_OPENVINO_DIR}"/runtime/cmake/ \
+    -D INF_ENGINE_RELEASE=2022010000 \
+    -D VIDEOIO_PLUGIN_LIST=ffmpeg,gstreamer,mfx \
+    -D CMAKE_EXE_LINKER_FLAGS=-Wl,--allow-shlib-undefined \
+    -D CMAKE_BUILD_TYPE=Release /opt/repo/opencv && \
+    ninja -j "$(nproc)" && cmake --install . && \
+    rm -Rf install/bin install/etc/samples
+
+WORKDIR /opt/repo/opencv/build/install
+CMD ["/bin/bash"]
+# -------------------------------------------------------------------------------------------------
+
+
 FROM ubuntu:24.04 AS ov_base
 
-LABEL description="This is the dev image for Intel(R) Distribution of OpenVINO(TM) toolkit on Ubuntu 24.04 LTS"
+LABEL description="This is the dev image for Intel(R) Distribution of OpenVINO(TM) toolkit on Ubuntu 22.04 LTS"
 LABEL vendor="Intel Corporation"
 
 USER root
