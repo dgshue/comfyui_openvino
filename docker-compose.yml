@@ -1,7 +1,6 @@
 # Compose file for Intel GPU
 
 services:
-
   comfyui:
     init: true
     container_name: comfyui-openvino
@@ -14,7 +13,7 @@ services:
     volumes:
       - "./storage:/root"
     environment:
-      - CLI_ARGS=
+      - CLI_ARGS=--cpu --use-pytorch-cross-attention
     devices:
       - /dev/dri:/dev/dri
       - /dev/accel/accel0:/dev/accel/accel0
