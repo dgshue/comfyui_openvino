@@ -411,11 +411,13 @@ RUN apt-get clean && \
     if [ -f /etc/apt/apt.conf.d/proxy.conf ]; then rm /etc/apt/apt.conf.d/proxy.conf; fi
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 100
 
-WORKDIR /root
+WORKDIR /home/openvino
 
 USER openvino
 
-RUN wget -q https://raw.githubusercontent.com/openvinotoolkit/stable-diffusion-webui/refs/heads/master/webui.sh
+RUN wget -q https://raw.githubusercontent.com/openvinotoolkit/stable-diffusion-webui/refs/heads/master/webui.sh && \
+    chmod 777 ./webui.sh && \
+    ./webui.sh
 
 
 EXPOSE 8188
